@@ -2,8 +2,12 @@ language: c
 
 sudo: false
 
+os:
+  - linux
+
 compiler:
   - gcc
+  - clang
 
 addons:
   apt:
@@ -13,6 +17,7 @@ addons:
     - cmake
     - git
     - libev-dev
+    - doxygen
 
 script:
-    - cmake . && make
+    - cmake . && make && make doc
