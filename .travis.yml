@@ -12,6 +12,7 @@ addons:
     - valgrind
     - cmake
     - git
+    - libev-dev
 
 script:
     - cmake . && make
