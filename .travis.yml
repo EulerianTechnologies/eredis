@@ -1,0 +1,17 @@
+language: c
+
+sudo: false
+
+compiler:
+  - gcc
+
+addons:
+  apt:
+    packages:
+    - gcc-multilib
+    - valgrind
+    - cmake
+    - git
+
+script:
+    - cmake . && make
