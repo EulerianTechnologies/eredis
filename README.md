@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/EulerianTechnologies/eredis.svg?branch=master)](https://travis-ci.org/EulerianTechnologies/eredis)
+
 # EREDIS
 
 Eredis is a C client library built over Hiredis.
