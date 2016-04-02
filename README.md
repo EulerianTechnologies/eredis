@@ -44,8 +44,13 @@ make install
 
 ## Usage
 
+Each function is described in the C code (doxygen).  
+The raw list is available in the unique header file: [eredis.h](/EulerianTechnologies/eredis/blob/master/include/eredis.h "eredis.h").
+
 ### init
 ```c
+#include <eredis.h>
+
 eredis_t *e = eredis_new();
 
 /* Set timeout - default 5000ms */
@@ -128,8 +133,9 @@ keep in memory the last unsent QUEUE_MAX_UNSHIFT (10000) commands.
 If a Redis server goes down and up, it could be needed to resynchronize
 with an active node. The master-slave mechanism is perfect for that.  
 In redis.conf, add 'slave-read-only no'.  
-After the Redis server start, make a "SLAVEOF hostX" and monitor the
-resync status. Once finished, make a "SLAVEOF no one" and it's done.
+After the Redis server start, make a "redis-cli SLAVEOF hostX".  
+Once 'redis-cli info Replication' pops a 'master_sync_in_progress:0', it's done.  
+make a "redis-cli SLAVEOF no one" and it comes back to a 'master' status.  
 This process can easily be scripted.
 
 
