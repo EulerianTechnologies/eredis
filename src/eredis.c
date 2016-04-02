@@ -678,11 +678,9 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
 /*
  * Internal generic eredis runner for the event loop (write)
  */
-  static int
+  static void
 _eredis_run( eredis_t *e )
 {
-  int err;
-
   if (! e->loop) {
     ev_timer *levt;
     ev_async *leva;
@@ -708,11 +706,9 @@ _eredis_run( eredis_t *e )
     /* Thread mode - release the thread creator */
     pthread_mutex_unlock( &(e->async_lock) );
 
-  err = ev_run( e->loop, 0 );
+  ev_run( e->loop, 0 );
 
   UNSET_INRUN(e);
-
-  return err;
 }
 
 
@@ -730,7 +726,8 @@ _eredis_run( eredis_t *e )
   int
 eredis_run( eredis_t *e )
 {
-  return _eredis_run( e );
+  _eredis_run( e );
+  return 0;
 }
 
   static void *
