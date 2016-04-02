@@ -45,7 +45,7 @@ make install
 ## Usage
 
 Each function is described in the C code (doxygen).  
-The raw list is available in the unique header file: [eredis.h](/EulerianTechnologies/eredis/blob/master/include/eredis.h "eredis.h").
+The raw list is available in the unique header file: [eredis.h](/include/eredis.h "eredis.h").
 
 ### init
 ```c
