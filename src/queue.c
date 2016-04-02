@@ -274,7 +274,6 @@ _eredis_rqueue_get( eredis_t *e )
   r = _eredis_reader_new( e );
   if (! r)
     return NULL;
-  //fprintf(stderr, "New reader: %d\n", (e->rqueue.nb));
 
 unlock:
   if (r) {

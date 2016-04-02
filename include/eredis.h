@@ -91,6 +91,8 @@ extern "C" {
   int eredis_w_cmd( eredis_t *e, const char *fmt, ... );
   int eredis_w_cmdargv(
     eredis_t *e, int argc, const char **argv, const size_t *argvlen );
+  /* Pending commands */
+  int eredis_w_pending( eredis_t *e );
 
   /* Reader */
   eredis_reader_t * eredis_r( eredis_t *e );
@@ -109,6 +111,9 @@ extern "C" {
     eredis_reader_t *reader,
     int argc, const char **argv, const size_t *argvlen);
 
+  /* Detach reply from reader - will need to be free manually */
+  eredis_reply_t * eredis_r_reply_detach( eredis_reader_t *reader );
+
   /* Make an 'append' and a 'reply'. Return the reply of the first CMD proceed */
   eredis_reply_t *
     eredis_r_vcmd( eredis_reader_t *reader, const char *format, va_list ap );
@@ -117,6 +122,10 @@ extern "C" {
   eredis_reply_t *
     eredis_r_cmdargv( eredis_reader_t *reader,
                       int argc, const char **argv, const size_t *argvlen );
+
+  /* Utils */
+  void eredis_reply_dump( eredis_reply_t *reply );
+  void eredis_reply_free( eredis_reply_t *reply );
 
 #ifdef __cplusplus
 }

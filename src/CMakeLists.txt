@@ -22,23 +22,22 @@ SET_DIRECTORY_PROPERTIES (PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 
 ADD_LIBRARY (eredis SHARED eredis.c)
 ADD_DEPENDENCIES (eredis hiredis-src hiredis-inc)
-IF(CMAKE_VERSION VERSION_LESS 3.0)
-TARGET_LINK_LIBRARIES (eredis pthread ev)
-ELSE(CMAKE_VERSION VERSION_LESS 3.0)
 TARGET_LINK_LIBRARIES (eredis PRIVATE pthread ev)
-ENDIF(CMAKE_VERSION VERSION_LESS 3.0)
 
 ADD_EXECUTABLE (test-async test-async.c)
-TARGET_LINK_LIBRARIES (test-async eredis)
+TARGET_LINK_LIBRARIES (test-async eredis pthread )
 
 ADD_EXECUTABLE (test-async-thr test-async-thr.c)
 TARGET_LINK_LIBRARIES (test-async-thr eredis pthread)
 
 ADD_EXECUTABLE (test-sync test-sync.c)
-TARGET_LINK_LIBRARIES (test-sync eredis)
+TARGET_LINK_LIBRARIES (test-sync eredis pthread)
 
 ADD_EXECUTABLE (test-sync-thr test-sync-thr.c)
 TARGET_LINK_LIBRARIES (test-sync-thr eredis pthread)
+
+ADD_EXECUTABLE (eredis-drop-noexpire eredis-drop-noexpire.c)
+TARGET_LINK_LIBRARIES (eredis-drop-noexpire eredis)
 
 INSTALL (TARGETS eredis LIBRARY DESTINATION lib)
 

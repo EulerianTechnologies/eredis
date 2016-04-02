@@ -141,6 +141,20 @@ eredis_w_cmdargv( eredis_t *e,
   return eredis_w_fcmd( e, cmd, len );
 }
 
+
+/**
+ * @brief eredis write queue pending commands
+ *
+ * @param e     eredis
+ *
+ * @return number of pending commands
+ */
+  int
+eredis_w_pending( eredis_t *e )
+{
+  return e->wqueue.nb;
+}
+
 /*
  * READ - sync - to first available host
  */
@@ -461,6 +475,33 @@ eredis_r_reply( eredis_reader_t *r )
       break;
 
   } while ( retry -- >0 );
+
+  return reply;
+}
+
+/**
+ * @brief detach current reply from reader context
+ *
+ * By default, because it is covering the most frequent usage, Eredis
+ * manage itself the cleanup of the reply.
+ * This function allows to detach from the reader context the latest
+ * reply returned by any eredis_r_X function.
+ *
+ * This allows to continue using the reply while issuing a new cmd
+ * to the reader.
+ * This reply will need to be free via eredis_reply_free.
+ *
+ * @param   r eredis reader
+ *
+ * @return  the reply (same as returned by previous eredis_r_X call)
+ */
+  eredis_reply_t *
+eredis_r_reply_detach( eredis_reader_t *r )
+{
+  eredis_reply_t *reply;
+
+  reply     = r->reply;
+  r->reply  = NULL;
 
   return reply;
 }

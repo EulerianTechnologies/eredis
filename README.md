@@ -1,19 +1,30 @@
-[![Build Status](https://travis-ci.org/EulerianTechnologies/eredis.svg?branch=master)](https://travis-ci.org/EulerianTechnologies/eredis)
-
 # EREDIS
 
 Eredis is a C client library built over Hiredis.
 It is lightweight, high performance, reentrant and thread-safe.  
-It aims to provide basic features needed in real production environment.
+It aims to provide features for real production environment and keep it simple.
 
-* Async commands (like writes) via asynchronous events (libev)
-* Manage async commands mirroring across multiple redis servers (shared-nothing)
-* Thread-safe pool of readers via sync
-* Automatic and seamless fail-over and reconnect.
+For write commands (SET, HSET, EXPIRE, ...):
+* Async commands via asynchronous events (libev)
+* Async commands mirroring across multiple redis servers (shared-nothing)
 
-Embedded Hiredis ensures the full Redis protocol support.  
-Reply's structure is from Hiredis.  
-Multiple hosts is not mandatory to use it.
+For any commands:
+* Thread-safe high speed pool of blocking connections: efficient persistent connections
+* Automatic and seamless fail-over and reconnect
+
+Integration:
+* Embedded Hiredis ensures the full Redis protocol support
+* Reply structure is the Hiredis efficient redisReply
+* Eredis allows you to switch from a single host mode to a an efficient
+shared-nothing/fail-over mode by just activating a new host.
+
+
+The integrated master-slave mechanism in Redis works ok
+for a small number of nodes or workload, but it could kill a
+master node bandwidth in high load.
+The many-to-many mechanism permits a more efficient and reliable
+workload by obviously needing exactly the same bandwidth on each node.
+
 
 ## Compile
 
@@ -105,16 +116,9 @@ eredis_free( e );
 
 ## Day-to-day
 
-Eredis provides a shared-nothing mechanism.  
-The integrated master-slave mechanism provided in Redis works ok
-for a small number of nodes or workload, but it could kill a
-master node bandwidth in high load.  
-The many-to-many mechanism permits a more efficient and reliable
-workload.
-
 When a Redis server goes down, Eredis async loop will detect it and
-retry to reconnect every second during HOST_DISCONNECTED_RETRIES (10 seconds).  
-After this, it will retry one time every HOST_FAILED_RETRY_AFTER (20 seconds).
+retry to reconnect every second HOST_DISCONNECTED_RETRIES (10) times (= 10 seconds).   
+After this, it will retry once every HOST_FAILED_RETRY_AFTER (20) seconds.
 
 To avoid data loss, if all specified Redis server are down, Eredis will
 keep in memory the last unsent QUEUE_MAX_UNSHIFT (10000) commands.
@@ -124,6 +128,7 @@ with an active node. The master-slave mechanism is perfect for that.
 In redis.conf, add 'slave-read-only no'.  
 After the Redis server start, make a "SLAVEOF hostX" and monitor the
 resync status. Once finished, make a "SLAVEOF no one" and it's done.
+This process can easily be scripted.
 
 
 ## AUTHOR
@@ -131,6 +136,6 @@ resync status. Once finished, make a "SLAVEOF no one" and it's done.
 Eredis is used on nearly 500 servers at Eulerian Technologies.  
 It is written and maintained by Guillaume Fougnies (guillaume at
 eulerian dot com).  
-Redis and Hiredis are great!
+Redis and Hiredis are great!  
 We hope you will find Eredis great.  
 It is released under the BSD license.  

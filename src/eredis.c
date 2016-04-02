@@ -396,7 +396,7 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
 
   if (status == REDIS_OK) {
 #if EREDIS_VERBOSE>0
-    fprintf(stderr, "eredis: connected %s\n", h->target);
+    printf("eredis: connected %s\n", h->target);
 #endif
     h->failures = 0;
     h->status   = HOST_CONNECTED;
@@ -430,7 +430,7 @@ _redis_disconnect_cb (const redisAsyncContext *c, int status)
 {
   host_t *h = (host_t*) c->data;
 #if EREDIS_VERBOSE>0
-  fprintf(stderr, "eredis: disconnected %s\n", h->target);
+  printf("eredis: disconnected %s\n", h->target);
 #endif
 
   (void)status;
@@ -471,8 +471,7 @@ _host_connect( host_t *h, eredis_reader_t *r )
     }
     if (c->err) {
 #if EREDIS_VERBOSE>0
-      fprintf(stderr,
-              "eredis: error: connect sync %s %d\n",
+      printf( "eredis: error: connect sync %s %d\n",
               h->target, c->err);
 #endif
       redisFree( c );
@@ -493,15 +492,13 @@ _host_connect( host_t *h, eredis_reader_t *r )
       redisAsyncConnectUnix( h->target );
 
     if (! ac) {
-      fprintf(stderr,
-              "eredis: error: connect async %s undef\n",
+      printf( "eredis: error: connect async %s undef\n",
               h->target);
       return 0;
     }
     if (ac->err) {
 #if EREDIS_VERBOSE>0
-      fprintf(stderr,
-              "eredis: error: connect async %s %d\n",
+      printf( "eredis: error: connect async %s %d\n",
               h->target, ac->err);
 #endif
       redisAsyncFree( ac );
@@ -617,10 +614,8 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
     if (e->hosts_connected) {
       for (i=0; i<e->hosts_nb; i++) {
         host_t *h = &e->hosts[i];
-        if (h->status == HOST_CONNECTED) {
-          if (h->async_ctx)
-            redisAsyncDisconnect( h->async_ctx );
-        }
+        if (h->status == HOST_CONNECTED && h->async_ctx)
+          redisAsyncDisconnect( h->async_ctx );
       }
     }
     else {
@@ -683,9 +678,11 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
 /*
  * Internal generic eredis runner for the event loop (write)
  */
-  static void
+  static int
 _eredis_run( eredis_t *e )
 {
+  int err;
+
   if (! e->loop) {
     ev_timer *levt;
     ev_async *leva;
@@ -711,9 +708,11 @@ _eredis_run( eredis_t *e )
     /* Thread mode - release the thread creator */
     pthread_mutex_unlock( &(e->async_lock) );
 
-  ev_run( e->loop, 0 );
+  err = ev_run( e->loop, 0 );
 
   UNSET_INRUN(e);
+
+  return err;
 }
 
 
@@ -731,8 +730,7 @@ _eredis_run( eredis_t *e )
   int
 eredis_run( eredis_t *e )
 {
-  _eredis_run( e );
-  return 0;
+  return _eredis_run( e );
 }
 
   static void *
@@ -778,6 +776,83 @@ eredis_run_thr( eredis_t *e )
   return err;
 }
 
+
+  void
+eredis_reply_detach( eredis_reader_t *reader )
+{
+  reader->reply = NULL;
+}
+
+/**
+ * @brief Dump eredis reply (hiredis format).
+ *
+ * Helper function:
+ * Save time !
+ *
+ * @param reply   eredis reply
+ */
+  static void
+_eredis_reply_dump( eredis_reply_t *reply, int depth )
+{
+  int i, indent = (depth+1) * 2;
+
+  if (! reply)
+    return;
+
+  switch (reply->type) {
+    case REDIS_REPLY_NIL:
+      printf( "%*c%s\n", indent, ' ', "Nil");
+      break;
+
+    case REDIS_REPLY_INTEGER:
+      printf( "%*c%s : %lld\n", indent, ' ', "Integer", reply->integer);
+      break;
+
+    case REDIS_REPLY_STRING:
+      printf( "%*c%s : \"%.*s\"\n", indent, ' ', "String", reply->len, reply->str);
+      break;
+
+    case REDIS_REPLY_ARRAY:
+      printf( "%*c%s  : %zu\n", indent, ' ', "Array", reply->elements);
+      for (i=0; i<reply->elements; i++) {
+        _eredis_reply_dump( reply->element[i], depth+1 );
+      }
+      break;
+
+    case REDIS_REPLY_STATUS:
+      printf( "%*c%s : %.*s\n", indent, ' ', "Status", reply->len, reply->str);
+      break;
+
+    case REDIS_REPLY_ERROR:
+      printf( "%*c%s  : %.*s\n", indent, ' ', "Error", reply->len, reply->str);
+      break;
+
+    default:
+      printf( "%*c%s\n", indent, ' ', "Unknown type?!");
+      break;
+  }
+}
+
+  void
+eredis_reply_dump( eredis_reply_t *reply )
+{
+  printf( "eredis: dump: %p\n", reply );
+  _eredis_reply_dump( reply, 0 );
+  printf( "/eredis: dump\n");
+}
+
+/**
+ * @brief Free a reply (must be detached)
+ *
+ * Simple wrapper around hiredis 'freeReplyObject'
+ *
+ * @param reply a detached reply
+ */
+  void
+eredis_reply_free( eredis_reply_t *reply )
+{
+  freeReplyObject( reply );
+}
 
 /**
  * @brief Shutdown the event loop
