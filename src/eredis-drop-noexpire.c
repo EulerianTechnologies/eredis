@@ -53,12 +53,12 @@ main( int argc, char *argv[] )
 
   /* host list */
   for (i=1; i<argc; i++) {
-    char *tg;
+    char *tg, *c;
     int port = 0;
     tg = argv[i];
-    if (strchr(tg, ':')) {
-      *tg = '\0';
-      port = atoi(tg+1);
+    if ((c = strchr(tg, ':'))) {
+      *c = '\0';
+      port = atoi(c+1);
     }
     //printf("Host %s (%d)\n", tg, port);
     eredis_host_add( e, tg, port );
