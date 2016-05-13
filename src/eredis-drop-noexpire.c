@@ -53,7 +53,7 @@ main( int argc, char *argv[] )
 
   /* host list */
   for (i=1; i<argc; i++) {
-    char *tg, *c;
+    char *c,*tg;
     int port = 0;
     tg = argv[i];
     if ((c = strchr(tg, ':'))) {

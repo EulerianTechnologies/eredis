@@ -65,11 +65,6 @@
 /* mine */
 #include "eredis.h"
 
-/* Host status */
-#define HOST_DISCONNECTED 0x0
-#define HOST_CONNECTED    0x1
-#define HOST_FAILED       0x2
-
 /* TCP Keep-Alive */
 #define HOST_TCP_KEEPALIVE
 
@@ -93,6 +88,30 @@
 
 #define EREDIS_READER_MAX_BUF             (2 * REDIS_READER_MAX_BUF)
 
+
+/*
+ * Host status
+ */
+/* 0x0f reserved for connection state */
+#define HOST_F_DISCONNECTED 0x00
+#define HOST_F_CONNECTED    0x01
+#define HOST_F_FAILED       0x02
+/* 0xf0 reserved for other flags */
+#define HOST_F_INIT         0x10
+
+/* and helpers */
+#define H_IS_CONNECTED(h)       (h->status & HOST_F_CONNECTED)
+#define H_IS_DISCONNECTED(h)    (h->status & HOST_F_DISCONNECTED)
+#define H_IS_FAILED(h)          (h->status & HOST_F_FAILED)
+#define H_IS_INIT(h)            (h->status & HOST_F_INIT)
+
+#define H_CONN_STATE(h)         h->status & 0x0f
+#define _H_SET_STATE(h,f)       h->status = (h->status & 0xf0) | f
+#define H_SET_DISCONNECTED(h)   _H_SET_STATE(h, HOST_F_DISCONNECTED)
+#define H_SET_CONNECTED(h)      _H_SET_STATE(h, HOST_F_CONNECTED)
+#define H_SET_FAILED(h)         _H_SET_STATE(h, HOST_F_FAILED)
+#define H_SET_INIT(h)           h->status |= HOST_F_INIT
+
 /*
  * Misc flags
  */
@@ -102,20 +121,20 @@
 #define EREDIS_F_SHUTDOWN                 0x08
 
 /* and helpers */
-#define IS_INRUN(e)                       (e->flags & EREDIS_F_INRUN)
-#define IS_INTHR(e)                       (e->flags & EREDIS_F_INTHR)
-#define IS_READY(e)                       (e->flags & EREDIS_F_READY)
-#define IS_SHUTDOWN(e)                    (e->flags & EREDIS_F_SHUTDOWN)
+#define IS_INRUN(e)             (e->flags & EREDIS_F_INRUN)
+#define IS_INTHR(e)             (e->flags & EREDIS_F_INTHR)
+#define IS_READY(e)             (e->flags & EREDIS_F_READY)
+#define IS_SHUTDOWN(e)          (e->flags & EREDIS_F_SHUTDOWN)
 
-#define SET_INRUN(e)                      e->flags |= EREDIS_F_INRUN
-#define SET_INTHR(e)                      e->flags |= EREDIS_F_INTHR
-#define SET_READY(e)                      e->flags |= EREDIS_F_READY
-#define SET_SHUTDOWN(e)                   e->flags |= EREDIS_F_SHUTDOWN
+#define SET_INRUN(e)            e->flags |= EREDIS_F_INRUN
+#define SET_INTHR(e)            e->flags |= EREDIS_F_INTHR
+#define SET_READY(e)            e->flags |= EREDIS_F_READY
+#define SET_SHUTDOWN(e)         e->flags |= EREDIS_F_SHUTDOWN
 
-#define UNSET_INRUN(e)                    e->flags &= ~EREDIS_F_INRUN
-#define UNSET_INTHR(e)                    e->flags &= ~EREDIS_F_INTHR
-#define UNSET_READY(e)                    e->flags &= ~EREDIS_F_READY
-#define UNSET_SHUTDOWN(e)                 e->flags &= ~EREDIS_F_SHUTDOWN
+#define UNSET_INRUN(e)          e->flags &= ~EREDIS_F_INRUN
+#define UNSET_INTHR(e)          e->flags &= ~EREDIS_F_INTHR
+#define UNSET_READY(e)          e->flags &= ~EREDIS_F_READY
+#define UNSET_SHUTDOWN(e)       e->flags &= ~EREDIS_F_SHUTDOWN
 
 /*
  * Host container
@@ -308,8 +327,10 @@ eredis_host_add( eredis_t *e, char *target, int port )
   h->e          = e;
   h->target     = strdup( target );
   h->port       = port;
-  h->status     = HOST_DISCONNECTED;
+  h->status     = 0;
   h->failures   = 0;
+
+  H_SET_DISCONNECTED( h );
 
   e->hosts_nb ++;
 }
@@ -359,7 +380,7 @@ eredis_host_file( eredis_t *e, char *file )
     if (! end)
       end = buf + strlen(buf);
     buf += strspn(buf, " \t");
-    if (*buf == '#')
+    if (buf == end || *buf == '#')
       goto next;
     tk = end;
     while (tk>buf && (*tk == ' ' || *tk == '\t'))
@@ -394,28 +415,31 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
 {
   host_t *h = (host_t*) c->data;
 
+  H_SET_INIT( h );
+
   if (status == REDIS_OK) {
 #if EREDIS_VERBOSE>0
     printf("eredis: connected %s\n", h->target);
 #endif
     h->failures = 0;
-    h->status   = HOST_CONNECTED;
+    H_SET_CONNECTED( h );
+
     h->e->hosts_connected ++;
 
     return;
   }
 
   /* Status increments */
-  switch (h->status) {
-    case HOST_FAILED:
+  switch (H_CONN_STATE( h )) {
+    case HOST_F_FAILED:
       h->failures %= HOST_FAILED_RETRY_AFTER;
       h->failures ++;
       break;
 
-    case HOST_DISCONNECTED:
+    case HOST_F_DISCONNECTED:
       if ((++ h->failures) > HOST_DISCONNECTED_RETRIES) {
         h->failures = 0;
-        h->status   = HOST_FAILED;
+        H_SET_FAILED( h );
       }
       break;
   }
@@ -435,7 +459,7 @@ _redis_disconnect_cb (const redisAsyncContext *c, int status)
 
   (void)status;
 
-  if (h->status != HOST_CONNECTED) {
+  if (! H_IS_CONNECTED(h)) {
     fprintf(
       stderr,
       "Error: strange behavior: "
@@ -444,9 +468,9 @@ _redis_disconnect_cb (const redisAsyncContext *c, int status)
   else
     h->e->hosts_connected --;
 
-  h->failures   = 0;
-  h->status     = HOST_DISCONNECTED;
   h->async_ctx  = NULL;
+  h->failures   = 0;
+  H_SET_DISCONNECTED( h );
   /* Free is take care by hiredis */
 }
 
@@ -561,7 +585,7 @@ _eredis_ev_send_cb (struct ev_loop *loop, ev_async *w, int revents)
     for (nb = 0, i=0; i<e->hosts_nb; i++) {
       host_t *h = &e->hosts[i];
 
-      if (h->status == HOST_CONNECTED) {
+      if (H_IS_CONNECTED(h)) {
         __redisAsyncCommand( h->async_ctx, NULL, NULL, s, l );
         nb ++;
       }
@@ -614,7 +638,7 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
     if (e->hosts_connected) {
       for (i=0; i<e->hosts_nb; i++) {
         host_t *h = &e->hosts[i];
-        if (h->status == HOST_CONNECTED && h->async_ctx)
+        if (H_IS_CONNECTED(h) && h->async_ctx)
           redisAsyncDisconnect( h->async_ctx );
       }
     }
@@ -631,11 +655,11 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
 
   for (i=0; i<e->hosts_nb; i++) {
     host_t *h = &e->hosts[i];
-    switch (h->status) {
-      case HOST_CONNECTED:
+    switch (H_CONN_STATE( h )) {
+      case HOST_F_CONNECTED:
         break;
 
-      case HOST_FAILED:
+      case HOST_F_FAILED:
         if ((h->failures < HOST_FAILED_RETRY_AFTER)
             ||
             ( ! _host_connect( h, 0 ))) {
@@ -644,11 +668,11 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
         }
         break;
 
-      case HOST_DISCONNECTED:
+      case HOST_F_DISCONNECTED:
         if (! _host_connect( h, 0 )) {
           if ((++ h->failures) > HOST_DISCONNECTED_RETRIES) {
             h->failures = 0;
-            h->status   = HOST_FAILED;
+            H_SET_FAILED( h );
           }
         }
         break;
@@ -664,7 +688,7 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
     /* build ready flag */
     for (i=0; i<e->hosts_nb; i++) {
       host_t *h = &e->hosts[i];
-      if (h->status == HOST_CONNECTED || h->failures)
+      if (H_IS_INIT( h ))
         nb ++;
     }
     if (nb == e->hosts_nb) {
@@ -806,7 +830,7 @@ _eredis_reply_dump( eredis_reply_t *reply, int depth )
       break;
 
     case REDIS_REPLY_STRING:
-      printf( "%*c%s : \"%.*s\"\n", indent, ' ', "String", reply->len, reply->str);
+      printf( "%*c%s : \"%.*s\"\n", indent, ' ', "String", (int)reply->len, reply->str);
       break;
 
     case REDIS_REPLY_ARRAY:
@@ -817,11 +841,11 @@ _eredis_reply_dump( eredis_reply_t *reply, int depth )
       break;
 
     case REDIS_REPLY_STATUS:
-      printf( "%*c%s : %.*s\n", indent, ' ', "Status", reply->len, reply->str);
+      printf( "%*c%s : %.*s\n", indent, ' ', "Status", (int)reply->len, reply->str);
       break;
 
     case REDIS_REPLY_ERROR:
-      printf( "%*c%s  : %.*s\n", indent, ' ', "Error", reply->len, reply->str);
+      printf( "%*c%s  : %.*s\n", indent, ' ', "Error", (int)reply->len, reply->str);
       break;
 
     default:

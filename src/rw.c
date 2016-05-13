@@ -195,7 +195,7 @@ _eredis_r_ctx( eredis_reader_t *r, int disconnect )
   if (IS_READY( e )) {
     for (i=0; i<e->hosts_nb; i++) {
       h = &e->hosts[i];
-      if (h->status == HOST_CONNECTED && _host_connect( h, r ))
+      if (H_IS_CONNECTED(h) && _host_connect( h, r ))
         goto out;
     }
   }
@@ -297,14 +297,17 @@ eredis_r_clear( eredis_reader_t *r )
   void
 eredis_r_release( eredis_reader_t *r )
 {
+  host_t *h;
+
   /* Clear */
   eredis_r_clear( r );
 
   /* Disconnect if the prefered host is available.
    * Flag is triggered by event loop */
-  if (r->host != &r->e->hosts[0] &&
+  if ((h = &r->e->hosts[0]) &&
       r->host &&
-      r->e->hosts[0].status == HOST_CONNECTED)
+      r->host != h &&
+      H_IS_CONNECTED(h))
     _eredis_r_ctx( r, 1 );
 
   /* Release in queue */
