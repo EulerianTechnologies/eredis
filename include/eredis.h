@@ -70,7 +70,7 @@ extern "C" {
   /* Shutdown */
   void eredis_shutdown( eredis_t *e );
   /* Add a host */
-  void eredis_host_add( eredis_t *e, char *target, int port );
+  int eredis_host_add( eredis_t *e, char *target, int port );
   /* Add hosts via configuration file (one host per line) */
   int eredis_host_file( eredis_t *e, char *file );
 

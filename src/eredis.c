@@ -68,8 +68,13 @@
 /* TCP Keep-Alive */
 #define HOST_TCP_KEEPALIVE
 
-/* Verbose */
-#define EREDIS_VERBOSE    0
+/* Verbose:
+ * 0 => silent
+ * 1 => error    (core errors)
+ * 2 => +warning (disconnect event)
+ * 3 => +debug   (hosts conf and connect event)
+ * */
+#define EREDIS_VERBOSE    1
 
 /* Retry to connect host every second, 10 times */
 #define HOST_DISCONNECTED_RETRIES         10
@@ -93,32 +98,39 @@
  * Host status
  */
 /* 0x0f reserved for connection state */
-#define HOST_F_DISCONNECTED 0x00
-#define HOST_F_CONNECTED    0x01
-#define HOST_F_FAILED       0x02
+#define HOST_F_DISCONNECTED     0x00
+#define HOST_F_CONNECTED        0x01
+#define HOST_F_FAILED           0x02
 /* 0xf0 reserved for other flags */
-#define HOST_F_INIT         0x10
+#define HOST_F_INIT             0x10
+#define HOST_F_CONNECTING       0x20
 
 /* and helpers */
 #define H_IS_CONNECTED(h)       (h->status & HOST_F_CONNECTED)
 #define H_IS_DISCONNECTED(h)    (h->status & HOST_F_DISCONNECTED)
 #define H_IS_FAILED(h)          (h->status & HOST_F_FAILED)
 #define H_IS_INIT(h)            (h->status & HOST_F_INIT)
+#define H_IS_CONNECTING(h)      (h->status & HOST_F_CONNECTING)
 
+/* Conn state change removes the 'CONNECTING' flag */
 #define H_CONN_STATE(h)         h->status & 0x0f
-#define _H_SET_STATE(h,f)       h->status = (h->status & 0xf0) | f
+#define _H_SET_STATE(h,f)       h->status = (h->status & \
+                                             (0xf0 ^ HOST_F_CONNECTING)) | f
 #define H_SET_DISCONNECTED(h)   _H_SET_STATE(h, HOST_F_DISCONNECTED)
 #define H_SET_CONNECTED(h)      _H_SET_STATE(h, HOST_F_CONNECTED)
 #define H_SET_FAILED(h)         _H_SET_STATE(h, HOST_F_FAILED)
+
+#define H_SET_CONNECTING(h)     h->status |= HOST_F_CONNECTING
+#define H_UNSET_CONNECTING(h)   h->status &= ~(HOST_F_CONNECTING)
 #define H_SET_INIT(h)           h->status |= HOST_F_INIT
 
 /*
  * Misc flags
  */
-#define EREDIS_F_INRUN                    0x01
-#define EREDIS_F_INTHR                    0x02
-#define EREDIS_F_READY                    0x04
-#define EREDIS_F_SHUTDOWN                 0x08
+#define EREDIS_F_INRUN          0x01
+#define EREDIS_F_INTHR          0x02
+#define EREDIS_F_READY          0x04
+#define EREDIS_F_SHUTDOWN       0x08
 
 /* and helpers */
 #define IS_INRUN(e)             (e->flags & EREDIS_F_INRUN)
@@ -225,6 +237,32 @@ typedef struct eredis_s {
   pthread_mutex_t   async_lock;
 } eredis_t;
 
+/**
+ * Err/Warn/Log
+ */
+#define _P_ERR(fmt, ...)
+#define _P_WARN(fmt, ...)
+#define _P_LOG(fmt, ...)
+#if defined(EREDIS_VERBOSE)
+#if EREDIS_VERBOSE>0
+#undef _P_ERR
+#define _P_ERR(fmt, ...)    fprintf(stderr,                     \
+                                    "eredis: error: "fmt"\n",   \
+                                    ##__VA_ARGS__)
+#if EREDIS_VERBOSE>1
+#undef _P_WARN
+#define _P_WARN(fmt, ...)   fprintf(stderr,                     \
+                                    "eredis: warning: "fmt"\n", \
+                                    ##__VA_ARGS__)
+#if EREDIS_VERBOSE>2
+#undef _P_LOG
+#define _P_LOG(fmt, ...)    fprintf(stdout,                     \
+                                   "eredis: log: "fmt"\n",      \
+                                   ##__VA_ARGS__)
+#endif
+#endif
+#endif
+#endif
 
 /**
  * @brief Build a new eredis environment
@@ -237,8 +275,10 @@ eredis_new( void )
   eredis_t *e;
 
   e = calloc( 1, sizeof(eredis_t) );
-  if (!e)
+  if (!e) {
+    _P_ERR( "eredis_new: failed to allocated memory" );
     return NULL;
+  }
 
   e->sync_to.tv_sec = DEFAULT_HOST_TIMEOUT;
   e->reader_max     = DEFAULT_HOST_READER_MAX;
@@ -309,23 +349,34 @@ eredis_r_retry( eredis_t *e, int retry )
  * @param e       eredis
  * @param target  hostname, ip or unix socket
  * @param port    port number (0 to activate unix socket)
+ * @return        -1 on error, 0 on success
  */
-  void
+  int
 eredis_host_add( eredis_t *e, char *target, int port )
 {
   host_t *h;
   if (e->hosts_nb <= e->hosts_alloc) {
+    host_t *ah;
     e->hosts_alloc += 8;
-    e->hosts = realloc( e->hosts, sizeof(host_t) * e->hosts_alloc );
+    ah = realloc( e->hosts, sizeof(host_t) * e->hosts_alloc );
+    if (! ah) {
+      _P_ERR("eredis_host_add: failed to reallocate");
+      return -1;
+    }
+    e->hosts = ah;
   }
 
-#if EREDIS_VERBOSE>0
-  printf("eredis: adding host: %s (%d)\n", target, port);
-#endif
+  _P_LOG("adding host: %s (%d)", target, port);
+
   h             = &e->hosts[ e->hosts_nb ];
   h->async_ctx  = NULL;
   h->e          = e;
   h->target     = strdup( target );
+  if (! h->target) {
+    _P_ERR("eredis_host_add: failed to allocate target");
+    return -1;
+  }
+
   h->port       = port;
   h->status     = 0;
   h->failures   = 0;
@@ -333,6 +384,8 @@ eredis_host_add( eredis_t *e, char *target, int port )
   H_SET_DISCONNECTED( h );
 
   e->hosts_nb ++;
+
+  return 0;
 }
 
 /**
@@ -364,10 +417,14 @@ eredis_host_file( eredis_t *e, char *file )
     goto out;
 
   len = st.st_size;
-  if (len>16384) /* strange */
+  if (len > 0x1<<16) /* strange > 64K */
     goto out;
 
   bufo = buf = (char*) malloc(sizeof(char)*(len+1));
+  if (! buf) {
+    _P_ERR("eredis_host_file: failed to allocate");
+    return -1;
+  }
   len = read( fd, buf, len );
   if (len != st.st_size)
     goto out;
@@ -418,9 +475,8 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
   H_SET_INIT( h );
 
   if (status == REDIS_OK) {
-#if EREDIS_VERBOSE>0
-    printf("eredis: connected %s\n", h->target);
-#endif
+    _P_LOG("connect_cb: connected %s", h->target);
+
     h->failures = 0;
     H_SET_CONNECTED( h );
 
@@ -429,23 +485,29 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
     return;
   }
 
+  _P_LOG("connect_cb: failed %s", h->target);
+
+  /* Unset connecting flag */
+  H_UNSET_CONNECTING( h );
+
   /* Status increments */
   switch (H_CONN_STATE( h )) {
-    case HOST_F_FAILED:
-      h->failures %= HOST_FAILED_RETRY_AFTER;
-      h->failures ++;
-      break;
-
     case HOST_F_DISCONNECTED:
       if ((++ h->failures) > HOST_DISCONNECTED_RETRIES) {
+        _P_WARN("host to failed: %s", h->target);
         h->failures = 0;
         H_SET_FAILED( h );
       }
       break;
+
+    case HOST_F_FAILED:
+      h->failures %= HOST_FAILED_RETRY_AFTER;
+      h->failures ++;
+      break;
   }
 
+  /* Free is taken care by hiredis - unlink */
   h->async_ctx  = NULL;
-  /* Free is take care by hiredis */
 }
 
 /* Redis - ev - disconnect callback */
@@ -453,17 +515,15 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
 _redis_disconnect_cb (const redisAsyncContext *c, int status)
 {
   host_t *h = (host_t*) c->data;
-#if EREDIS_VERBOSE>0
-  printf("eredis: disconnected %s\n", h->target);
-#endif
 
   (void)status;
 
+  _P_WARN("disconnect_cb: %s", h->target);
+
   if (! H_IS_CONNECTED(h)) {
-    fprintf(
-      stderr,
-      "Error: strange behavior: "
-      "redis_disconnect_cb called on !HOST_CONNECTED\n");
+    _P_ERR(
+      "strange behavior: "
+      "redis_disconnect_cb called on !HOST_CONNECTED");
   }
   else
     h->e->hosts_connected --;
@@ -488,16 +548,11 @@ _host_connect( host_t *h, eredis_reader_t *r )
       redisConnectUnix( h->target );
 
     if (! c) {
-      fprintf(stderr,
-              "eredis: error: connect sync %s NULL\n",
-              h->target);
+      _P_ERR("connect sync %s NULL", h->target);
       return 0;
     }
     if (c->err) {
-#if EREDIS_VERBOSE>0
-      printf( "eredis: error: connect sync %s %d\n",
-              h->target, c->err);
-#endif
+      _P_LOG("connect sync failed %s err:%d", h->target, c->err);
       redisFree( c );
       return 0;
     }
@@ -515,19 +570,20 @@ _host_connect( host_t *h, eredis_reader_t *r )
       :
       redisAsyncConnectUnix( h->target );
 
+    _P_LOG("connecting async %s", h->target);
+
     if (! ac) {
-      printf( "eredis: error: connect async %s undef\n",
-              h->target);
+      _P_ERR( "connect async %s undef", h->target);
       return 0;
     }
     if (ac->err) {
-#if EREDIS_VERBOSE>0
-      printf( "eredis: error: connect async %s %d\n",
-              h->target, ac->err);
-#endif
+      _P_LOG( "connect async failed %s err:%d", h->target, ac->err);
       redisAsyncFree( ac );
       return 0;
     }
+
+    if (h->async_ctx)
+      redisAsyncFree( h->async_ctx );
 
     h->async_ctx = ac;
 
@@ -544,6 +600,9 @@ _host_connect( host_t *h, eredis_reader_t *r )
     redisAsyncSetConnectCallback( ac, _redis_connect_cb );
 
     c = (redisContext*) ac;
+
+    /* set connecting flag */
+    H_SET_CONNECTING( h );
   }
 
   /* Apply keep-alive */
@@ -634,13 +693,20 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
 
   e = (eredis_t*) w->data;
 
+  /* Shutdown procedure */
   if (IS_SHUTDOWN(e)) {
     if (e->hosts_connected) {
+      int nb = 0;
       for (i=0; i<e->hosts_nb; i++) {
         host_t *h = &e->hosts[i];
-        if (H_IS_CONNECTED(h) && h->async_ctx)
-          redisAsyncDisconnect( h->async_ctx );
+        if (h->async_ctx) {
+          if (H_IS_CONNECTED(h)) {
+            nb ++;
+            redisAsyncDisconnect( h->async_ctx );
+          }
+        }
       }
+      e->hosts_connected = nb;
     }
     else {
       /* Connect timer */
@@ -650,11 +716,19 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
       /* Event break */
       ev_break( e->loop, EVBREAK_ALL );
     }
+
     return;
   }
 
+  /* Normal procedure */
   for (i=0; i<e->hosts_nb; i++) {
     host_t *h = &e->hosts[i];
+
+    if (H_IS_CONNECTING( h )) {
+      /* avoid host with 'connecting' flag */
+      continue;
+    }
+
     switch (H_CONN_STATE( h )) {
       case HOST_F_CONNECTED:
         break;
@@ -662,7 +736,7 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
       case HOST_F_FAILED:
         if ((h->failures < HOST_FAILED_RETRY_AFTER)
             ||
-            ( ! _host_connect( h, 0 ))) {
+            (! _host_connect( h, 0 ))) {
           h->failures %= HOST_FAILED_RETRY_AFTER;
           h->failures ++;
         }
@@ -787,9 +861,11 @@ eredis_run_thr( eredis_t *e )
     err = (int)
       pthread_create( &e->async_thr, NULL, _eredis_run_thr, (void*)e );
 
-    while (! IS_INRUN(e))
-      /* Trigger from running thread */
-      pthread_mutex_lock( &(e->async_lock) );
+    if (0 == err) {
+      while (! IS_INRUN(e))
+        /* Trigger from running thread */
+        pthread_mutex_lock( &(e->async_lock) );
+    }
   }
 
   pthread_mutex_unlock( &(e->async_lock) );
@@ -830,7 +906,8 @@ _eredis_reply_dump( eredis_reply_t *reply, int depth )
       break;
 
     case REDIS_REPLY_STRING:
-      printf( "%*c%s : \"%.*s\"\n", indent, ' ', "String", (int)reply->len, reply->str);
+      printf( "%*c%s : \"%.*s\"\n", indent, ' ', "String",
+              (int)reply->len, reply->str);
       break;
 
     case REDIS_REPLY_ARRAY:
@@ -841,11 +918,13 @@ _eredis_reply_dump( eredis_reply_t *reply, int depth )
       break;
 
     case REDIS_REPLY_STATUS:
-      printf( "%*c%s : %.*s\n", indent, ' ', "Status", (int)reply->len, reply->str);
+      printf( "%*c%s : %.*s\n", indent, ' ', "Status",
+              (int)reply->len, reply->str);
       break;
 
     case REDIS_REPLY_ERROR:
-      printf( "%*c%s  : %.*s\n", indent, ' ', "Error", (int)reply->len, reply->str);
+      printf( "%*c%s  : %.*s\n", indent, ' ', "Error",
+              (int)reply->len, reply->str);
       break;
 
     default:
@@ -914,20 +993,25 @@ eredis_free( eredis_t *e )
   }
 
   /* Shutdown what's left */
-  for (i=0; i<e->hosts_nb; i++) {
-    host_t *h = &e->hosts[i];
-    if (h->async_ctx)
-      redisAsyncFree( h->async_ctx );
-    free(h->target);
+  if (e->hosts) {
+    for (i=0; i<e->hosts_nb; i++) {
+      host_t *h = &e->hosts[i];
+      if (h->async_ctx)
+        redisAsyncFree( h->async_ctx );
+      if (h->target)
+        free(h->target);
+    }
+    free(e->hosts);
   }
-  free(e->hosts);
 
   /* Clear rqueue */
   while ((r = _eredis_rqueue_shift( e ))) {
-    if (r->free)
+    if (r->free) {
       _eredis_reader_free( r );
-    else
-      fprintf(stderr,"eredis: eredis_free: reader not in 'free' state!?\n");
+    }
+    else {
+      _P_ERR("eredis_free: reader not in 'free' state!?");
+    }
   }
 
   /* Clear wqueue */
