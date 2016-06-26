@@ -42,6 +42,8 @@
  * @date 2016-03-29
  */
 
+#define _EREDIS_C  1
+
 /* Embedded hiredis */
 #include "async.c"
 #include "hiredis.c"
@@ -61,9 +63,6 @@
 
 /* hiredis ev */
 #include "adapters/libev.h"
-
-/* mine */
-#include "eredis.h"
 
 /* TCP Keep-Alive */
 #define HOST_TCP_KEEPALIVE
@@ -151,9 +150,12 @@
 /*
  * Host container
  */
+
+struct eredis_s;
+
 typedef struct host_s {
   redisAsyncContext *async_ctx;
-  eredis_t          *e;
+  struct eredis_s   *e;
   char              *target;
 
   /* 'target' is host if port>0 and unix otherwise */
@@ -236,6 +238,9 @@ typedef struct eredis_s {
   pthread_t         async_thr;
   pthread_mutex_t   async_lock;
 } eredis_t;
+
+/* mine */
+#include "eredis.h"
 
 /**
  * Err/Warn/Log

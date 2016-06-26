@@ -55,8 +55,10 @@ extern "C" {
    * Documentation (doxygen) in C files
    */
 
+#ifndef _EREDIS_C
   typedef struct eredis_s eredis_t;
   typedef struct eredis_reader_s eredis_reader_t;
+#endif
   typedef struct redisReply eredis_reply_t;
 
 #define EREDIS_ERRCMD   -2
