@@ -103,7 +103,7 @@ reply = eredis_r_reply( reader );
 ...
 
 /* release a reader */
-r = eredis_r_release( e );
+eredis_r_release( r );
 ```
 
 ### async requests (no reply, non-blocking)
