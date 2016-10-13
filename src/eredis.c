@@ -782,7 +782,7 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
  * Internal generic eredis runner for the event loop (write)
  */
   static void
-_eredis_run( eredis_t *e )
+_eredis_run( eredis_t *e, int flags )
 {
   if (! e->loop) {
     ev_timer *levt;
@@ -809,7 +809,7 @@ _eredis_run( eredis_t *e )
     /* Thread mode - release the thread creator */
     pthread_mutex_unlock( &(e->async_lock) );
 
-  ev_run( e->loop, 0 );
+  ev_run( e->loop, flags );
 
   UNSET_INRUN(e);
 }
@@ -829,7 +829,7 @@ _eredis_run( eredis_t *e )
   int
 eredis_run( eredis_t *e )
 {
-  _eredis_run( e );
+  _eredis_run( e, 0 );
   return 0;
 }
 
@@ -838,7 +838,7 @@ _eredis_run_thr( void *ve )
 {
   eredis_t *e = ve;
   SET_INTHR( e );
-  _eredis_run( e );
+  _eredis_run( e, 0 );
   UNSET_INTHR( e );
   pthread_exit( NULL );
 }
@@ -986,6 +986,18 @@ eredis_free( eredis_t *e )
   /* Flag for shutdown */
   SET_SHUTDOWN(e);
 
+  /* Shutdown per hosts */
+  if (e->hosts) {
+    for (i=0; i<e->hosts_nb; i++) {
+      host_t *h = &e->hosts[i];
+      if (h->async_ctx) {
+        redisAsyncDisconnect( h->async_ctx );
+        if (! IS_INTHR( e ))
+          _eredis_run( e, EVRUN_NOWAIT );
+      }
+    }
+  }
+
   /* Loop trash */
   if (e->loop) {
     if (IS_INTHR( e )) /* Thread - wait to EVBREAK_ALL */
@@ -997,16 +1009,18 @@ eredis_free( eredis_t *e )
     e->loop = NULL;
   }
 
-  /* Shutdown what's left */
   if (e->hosts) {
     for (i=0; i<e->hosts_nb; i++) {
       host_t *h = &e->hosts[i];
-      if (h->async_ctx)
+      if (h->async_ctx) {
         redisAsyncFree( h->async_ctx );
+        h->async_ctx = NULL;
+      }
       if (h->target)
         free(h->target);
     }
     free(e->hosts);
+    e->hosts = NULL;
   }
 
   /* Clear rqueue */
