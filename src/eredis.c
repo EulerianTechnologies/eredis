@@ -448,7 +448,7 @@ eredis_host_file( eredis_t *e, char *file )
     while (tk>buf && (*tk == ' ' || *tk == '\t'))
       tk --;
     *tk = '\0';
-    tk = strchr(buf, ':'); /* port */
+    tk = strrchr(buf, ':'); /* port */
     if (tk) {
       *tk = '\0';
       port = atoi(tk+1);
