@@ -422,6 +422,44 @@ _eredis_r_send( eredis_reader_t *r, redisContext **pc )
 }
 
 /**
+ * @brief eredis reader reply, blocking for pub/sub
+ *
+ * @param r     eredis reader
+ *
+ * @return reply (redisReply)
+ */
+  eredis_reply_t *
+eredis_r_reply_blocking( eredis_reader_t *r )
+{
+    redisContext *c;
+    eredis_reply_t *reply;
+    int err;
+
+    reply = NULL;
+
+    if (!(c = _eredis_r_ctx(r, 0)))
+        return NULL;
+
+    err = redisGetReply( c, (void**)&reply );
+
+    if (err == EREDIS_OK) {
+      /* Good */
+      /* Previous to clean? */
+      _eredis_r_free_reply( r );
+      /* New reply */
+      r->reply = reply;
+    } else {
+      /* Bad */
+      if (reply)
+        freeReplyObject( reply );
+
+      err = c->err;
+    }
+
+    return reply;
+}
+
+/**
  * @brief eredis reader reply
  *
  * @param r     eredis reader
@@ -557,7 +595,7 @@ eredis_r_cmd( eredis_reader_t *r, const char *format, ... )
  * @param argv    argument vector
  * @param argvlen argument length vector
  *
- * @return EREDIS_ERR or EREDIS_OK
+ * @return reply (redisReply)
  */
   eredis_reply_t *
 eredis_r_cmdargv( eredis_reader_t *r,
