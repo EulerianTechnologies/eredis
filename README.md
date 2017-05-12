@@ -96,13 +96,28 @@ r = eredis_r( e );
 
 /* Add one request (pipelining) */
 eredis_r_append_cmd( reader, "GET key1");
-/* Add one request and process - got key1 reply */
-reply = eredis_r_cmd( reader, "GET key2");
-/* key2 reply - not mandatory to get all replies */
-reply = eredis_r_reply( reader );
-...
 
-/* release a reader */
+/* Add one request and process,
+   return key1 reply (the first one from queue) */
+reply = eredis_r_cmd( reader, "GET key2");
+
+if ( I_NEED_ALL_REPLIES ) {
+ /* current 'reply' hosts 'key1' reply */
+
+ /* Get key2 reply */
+ reply = eredis_r_reply( reader );
+ ...
+}
+
+if ( I_NEED_TO_SEND_MORE ) {
+ /* this one fetches all possible replies left in the pipelining */
+ eredis_r_clear( reader );
+
+ /* reader is ready to perform a new batch of r_cmd+replies */
+ ..
+}
+
+/* Release the reader */
 eredis_r_release( r );
 ```
 
