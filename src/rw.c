@@ -483,6 +483,89 @@ eredis_r_reply( eredis_reader_t *r )
 }
 
 /**
+ * @brief reader subscribe and read
+ *  Need at least one appended SUBSCRIBE/PSUBSCRIBED cmd
+ *
+ * @param r     eredis reader
+ *
+ * @return reply (redisReply)
+ */
+  eredis_reply_t *
+eredis_r_subscribe( eredis_reader_t *r )
+{
+  redisContext *c;
+  eredis_reply_t *reply;
+  int retry, err;
+
+  if (r->cmds_nb == 0) {
+    fprintf(stderr,
+            "eredis: api misuse: subscribe need "
+            "at least one appended command\n");
+    return NULL;
+  }
+
+  /* Retry allowed if already connected */
+  retry = (r->ctx) ? r->e->reader_retry : 0;
+
+  do {
+    reply   = NULL;
+
+    if (_eredis_r_send( r, &c ) == EREDIS_ERR)
+      break;
+
+    /* Replies of subscribe commands if there is some */
+    if (r->cmds_replied < r->cmds_nb) {
+      do {
+        err = redisGetReply( c, (void**)&reply );
+        if (err != EREDIS_OK)
+          goto reconnect;
+
+        if (reply) {
+          freeReplyObject( reply );
+          reply = NULL;
+        }
+
+        r->cmds_replied ++;
+      } while (r->cmds_replied < r->cmds_nb);
+
+      r->cmds_requested = r->cmds_replied = r->cmds_nb;
+    }
+
+    /* Message from subscribed channel */
+    err = redisGetReply( c, (void**)&reply );
+
+    if (err == EREDIS_OK) {
+      /* Good */
+      /* Previous to clean? */
+      _eredis_r_free_reply( r );
+      /* New reply */
+      r->reply = reply;
+      break;
+    }
+
+reconnect:
+    /* Bad */
+    if (reply) {
+      freeReplyObject( reply );
+      reply = NULL;
+    }
+
+    err = c->err;
+    _eredis_r_ctx(r, 1);
+
+    /* Reset cmds_requested to ensure re-subscribe */
+    r->cmds_requested = r->cmds_replied = 0;
+
+    /* retry? */
+    if (err != REDIS_ERR_IO && err != REDIS_ERR_EOF)
+      break;
+
+  } while ( retry -- >0 );
+
+  return reply;
+}
+
+/**
  * @brief detach current reply from reader context
  *
  * By default, because it is covering the most frequent usage, Eredis

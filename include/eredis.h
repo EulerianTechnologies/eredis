@@ -104,6 +104,9 @@ extern "C" {
   /* Get another reply (pipelining) */
   eredis_reply_t * eredis_r_reply( eredis_reader_t *reader );
 
+  /* Get subscribe reply */
+  eredis_reply_t * eredis_r_subscribe( eredis_reader_t *reader );
+
   int eredis_r_append_fcmd(
     eredis_reader_t *reader, const char *cmd, size_t len );
   int eredis_r_append_vcmd(

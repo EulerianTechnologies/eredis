@@ -121,6 +121,45 @@ if ( I_NEED_TO_SEND_MORE ) {
 eredis_r_release( r );
 ```
 
+### subscribe requests (beta, blocking)
+```c
+eredis_reader_t *r;
+eredis_reply_t *reply; /* aka redisReply from hiredis */
+
+/* get a reader */
+r = eredis_r( e );
+
+/* Add one request */
+eredis_r_append_cmd( reader, "SUBSCRIBE chan1");
+
+/* Get subscribe requests.
+   Replies from SUBSCRIBE commands are omitted.
+   Eredis manages reconnect and re-subscribe to channels */
+
+while (( reply = eredis_r_subscribe( reader ) ))
+{
+ ...
+ if ( HAVE_ENOUGH )
+  break;
+}
+
+/* Add a new channel */
+eredis_r_append_cmd( reader, "SUBSCRIBE chan2");
+
+while (( reply = eredis_r_subscribe( reader ) ))
+{
+ ...
+ if ( HAVE_ENOUGH )
+  break;
+}
+
+/* 'release' is not disconnecting, just unsubscribe properly */
+eredis_r_cmd( reader, "UNSUBSCRIBE" );
+
+/* Release the reader */
+eredis_r_release( r );
+```
+
 ### async requests (no reply, non-blocking)
 ```c
 eredis_w_cmd( e, "SET key1 10" );
