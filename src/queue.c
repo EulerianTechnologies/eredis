@@ -51,8 +51,8 @@ _eredis_wqueue_push( eredis_t *e, char *s, int l )
   wqueue_ent_t *ent;
 
   ent = malloc(sizeof(wqueue_ent_t));
-  ent->s = s;
-  ent->l = l;
+  ent->cmd.s = s;
+  ent->cmd.l = l;
   ent->prev = ent->next = ent;
 
   pthread_mutex_lock( &e->async_lock );
@@ -77,8 +77,8 @@ _eredis_wqueue_unshift( eredis_t *e, char *s, int l )
   wqueue_ent_t *ent;
 
   ent = malloc(sizeof(wqueue_ent_t));
-  ent->s = s;
-  ent->l = l;
+  ent->cmd.s = s;
+  ent->cmd.l = l;
   ent->prev = ent->next = ent;
 
   pthread_mutex_lock( &e->async_lock );
@@ -136,8 +136,8 @@ _eredis_wqueue_shift( eredis_t *e, int *pl )
 
   if (ent) {
     if (pl)
-      *pl = ent->l;
-    s = ent->s;
+      *pl = ent->cmd.l;
+    s = ent->cmd.s;
     free( ent );
   }
 

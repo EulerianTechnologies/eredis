@@ -43,6 +43,8 @@ main( void )
     exit(1);
   }
 
+  /* eredis_pc_cmd( e, "AUTH mysecret" ); */
+
   /* run thread (not mandatory for reader-only) */
   //eredis_run_thr( e );
 

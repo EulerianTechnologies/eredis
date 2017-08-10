@@ -76,6 +76,17 @@ eredis_host_add( e, "host3", 6379 );
 eredis_host_file( e, "my-hosts.conf" );
 ```
 
+### add post-connection requests (beta)
+For 'AUTH' or any one-time command needed to be executed after connect.
+Eredis ensures that these commands are executed in order before any other
+reader or writer commands.
+```c
+char *pwd = "mysecret";
+eredis_pc_cmd( e, "AUTH mysecret" );
+eredis_pc_cmd( e, "AUTH %s", pwd );
+eredis_pc_cmd( e, "SCRIPT DEBUG YES" );
+```
+
 ### launch the async loop
 Mandatory for using async writes or auto-reconnection to the "prefered" host.
 ```c

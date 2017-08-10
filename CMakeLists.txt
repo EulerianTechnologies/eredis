@@ -5,7 +5,7 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 PROJECT ( EREDIS C )
 
 # -Wno-strict-aliasing for hiredis libev (eredis libev is fine)
-ADD_DEFINITIONS( "-O2 -Wall -Wno-strict-aliasing")
+ADD_DEFINITIONS( "-O2 -Wall -Wno-strict-aliasing -ggdb")
 
 ADD_SUBDIRECTORY( include )
 ADD_SUBDIRECTORY( src )

@@ -42,6 +42,8 @@ main( void )
     exit(1);
   }
 
+  /* eredis_pc_cmd( e, "AUTH mysecret" ); */
+
   int i,j;
   char fmt[32];
   for (j='a'; j<='b'; j++) {

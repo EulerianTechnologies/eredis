@@ -115,9 +115,16 @@
 #define H_CONN_STATE(h)         h->status & 0x0f
 #define _H_SET_STATE(h,f)       h->status = (h->status & \
                                              (0xf0 ^ HOST_F_CONNECTING)) | f
-#define H_SET_DISCONNECTED(h)   _H_SET_STATE(h, HOST_F_DISCONNECTED)
-#define H_SET_CONNECTED(h)      _H_SET_STATE(h, HOST_F_CONNECTED)
-#define H_SET_FAILED(h)         _H_SET_STATE(h, HOST_F_FAILED)
+
+#define H_SET_DISCONNECTED(h)   do {    \
+  h->failures = 0;                      \
+  _H_SET_STATE(h, HOST_F_DISCONNECTED); } while (0)
+#define H_SET_CONNECTED(h)      do {    \
+  h->failures = 0;                      \
+  _H_SET_STATE(h, HOST_F_CONNECTED);   } while (0)
+#define H_SET_FAILED(h)         do {    \
+  h->failures = 0;                      \
+  _H_SET_STATE(h, HOST_F_FAILED);      } while (0)
 
 #define H_SET_CONNECTING(h)     h->status |= HOST_F_CONNECTING
 #define H_UNSET_CONNECTING(h)   h->status &= ~(HOST_F_CONNECTING)
@@ -169,21 +176,20 @@ typedef struct host_s {
 } host_t;
 
 /*
+ * A command
+ */
+typedef struct cmd_s {
+  char                *s;
+  int                 l;
+} cmd_t;
+
+/*
  * Write Queue of commands
  */
 typedef struct wqueue_ent_s {
   struct wqueue_ent_s *next, *prev;
-  char                *s;
-  int                 l;
+  cmd_t               cmd;
 } wqueue_ent_t;
-
-/*
- * Read command
- */
-typedef struct rcmd_s {
-  char                *s;
-  int                 l;
-} rcmd_t;
 
 /*
  * Reader container
@@ -194,7 +200,7 @@ typedef struct eredis_reader_s {
   redisContext            *ctx;
   void                    *reply;
   host_t                  *host;
-  rcmd_t                  *cmds;
+  cmd_t                   *cmds;
   int                     cmds_requested; /* delivered requests */
   int                     cmds_replied;   /* delivered replies */
   int                     cmds_nb;
@@ -234,6 +240,9 @@ typedef struct eredis_s {
     wqueue_ent_t     *fst;
     int             nb;
   } wqueue;
+
+  cmd_t             *cmds_connect;    /* post-connect commands */
+  int               cmds_connect_nb;
 
   pthread_t         async_thr;
   pthread_mutex_t   async_lock;
@@ -340,6 +349,39 @@ eredis_r_retry( eredis_t *e, int retry )
 }
 
 /**
+ * @brief Add a post-connect command
+ *
+ *
+ */
+  int
+eredis_pc_cmd( eredis_t *e, const char *fmt, ... )
+{
+  int i;
+  size_t l;
+  char *cmd = NULL;
+  va_list ap;
+
+  va_start(ap,fmt);
+  l = redisvFormatCommand( &cmd, fmt, ap );
+  va_end(ap);
+  if (!cmd)
+    return EREDIS_ERRCMD;
+  if (l<=0) {
+    free(cmd);
+    return EREDIS_ERRCMD;
+  }
+
+  i = e->cmds_connect_nb;
+  e->cmds_connect = realloc( e->cmds_connect, sizeof(cmd_t) * (i+1) );
+
+  e->cmds_connect[ i ].s = cmd;
+  e->cmds_connect[ i ].l = l;
+  e->cmds_connect_nb ++;
+
+  return EREDIS_OK;
+}
+
+/**
  * @brief Add a host to eredis
  *
  * Must be called after 'new' and before any call to 'run'.
@@ -384,7 +426,6 @@ eredis_host_add( eredis_t *e, char *target, int port )
 
   h->port       = port;
   h->status     = 0;
-  h->failures   = 0;
 
   H_SET_DISCONNECTED( h );
 
@@ -482,7 +523,6 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
   if (status == REDIS_OK) {
     _P_LOG("connect_cb: connected %s", h->target);
 
-    h->failures = 0;
     H_SET_CONNECTED( h );
 
     h->e->hosts_connected ++;
@@ -490,24 +530,22 @@ _redis_connect_cb (const redisAsyncContext *c, int status)
     return;
   }
 
-  _P_LOG("connect_cb: failed %s", h->target);
-
   /* Unset connecting flag */
   H_UNSET_CONNECTING( h );
+
+  _P_LOG("connect_cb: failed %s", h->target);
 
   /* Status increments */
   switch (H_CONN_STATE( h )) {
     case HOST_F_DISCONNECTED:
       if ((++ h->failures) > HOST_DISCONNECTED_RETRIES) {
         _P_WARN("host to failed: %s", h->target);
-        h->failures = 0;
         H_SET_FAILED( h );
       }
       break;
 
     case HOST_F_FAILED:
-      h->failures %= HOST_FAILED_RETRY_AFTER;
-      h->failures ++;
+      h->failures = 0;
       break;
   }
 
@@ -534,87 +572,140 @@ _redis_disconnect_cb (const redisAsyncContext *c, int status)
     h->e->hosts_connected --;
 
   h->async_ctx  = NULL;
-  h->failures   = 0;
   H_SET_DISCONNECTED( h );
   /* Free is take care by hiredis */
 }
 
 /* Internal host connect - Sync or Async */
+  static inline redisContext *
+_host_connect_sync( host_t *h, eredis_reader_t *r )
+{
+  int i;
+  eredis_t *e;
+  redisContext *c;
+
+  e = h->e;
+
+  c = (h->port) ?
+    redisConnect( h->target, h->port )
+    :
+    redisConnectUnix( h->target );
+
+  if (! c) {
+    _P_ERR("connect sync %s NULL", h->target);
+    return NULL;
+  }
+  if (c->err) {
+    _P_LOG("connect sync failed %s err:%d", h->target, c->err);
+    redisFree( c );
+    return NULL;
+  }
+
+  r->ctx   = c;
+  r->host  = h;
+
+  /* Process post-connect command if any */
+  for (i=0; i<e->cmds_connect_nb; i++) {
+    redisAppendFormattedCommand( r->ctx,
+                                 e->cmds_connect[i].s,
+                                 e->cmds_connect[i].l );
+  }
+
+  for (i=0; i<e->cmds_connect_nb; i++) {
+    eredis_reply_t *reply = NULL;
+    int err;
+    err = redisGetReply( r->ctx, (void**)&reply );
+    if (reply)
+      freeReplyObject( reply );
+    if (err != EREDIS_OK) {
+      _P_ERR( "eredis_reader: failed to execute post-connect cmd: %.*s",
+              e->cmds_connect[i].l,
+              e->cmds_connect[i].s );
+      return NULL;
+    }
+  }
+
+  return c;
+}
+
+  static inline redisContext *
+_host_connect_async( host_t *h )
+{
+  int i;
+  eredis_t *e;
+  redisAsyncContext *ac;
+
+  e = h->e;
+
+  /* ASync - in EV context */
+  ac = (h->port) ?
+    redisAsyncConnect( h->target, h->port )
+    :
+    redisAsyncConnectUnix( h->target );
+
+  _P_LOG("connecting async %s", h->target);
+
+  if (! ac) {
+    _P_ERR( "connect async %s undef", h->target);
+    return NULL;
+  }
+  if (ac->err) {
+    H_SET_INIT( h );
+    _P_LOG( "connect async failed %s err:%d", h->target, ac->err);
+    redisAsyncFree( ac );
+    return NULL;
+  }
+
+  if (h->async_ctx)
+    redisAsyncFree( h->async_ctx );
+
+  h->async_ctx = ac;
+
+  /* data for _redis_*_cb */
+  ac->data = h;
+
+  /* Order is important here */
+
+  /* attach */
+  redisLibevAttach( e->loop, ac );
+
+  /* set callbacks */
+  redisAsyncSetDisconnectCallback( ac, _redis_disconnect_cb );
+  redisAsyncSetConnectCallback( ac, _redis_connect_cb );
+
+  /* set connecting flag */
+  H_SET_CONNECTING( h );
+
+  /* Append post-connect command if any */
+  for (i=e->cmds_connect_nb - 1; i>=0; i--) {
+    char *cmd = strndup( e->cmds_connect[i].s, e->cmds_connect[i].l );
+    if (! cmd) {
+      H_SET_DISCONNECTED( h );
+      redisAsyncFree( h->async_ctx );
+      h->async_ctx = NULL;
+      return NULL;
+    }
+    _eredis_wqueue_unshift( e, cmd, e->cmds_connect[i].l );
+  }
+
+  return (redisContext*) ac;
+}
+
   static int
 _host_connect( host_t *h, eredis_reader_t *r )
 {
   redisContext *c;
 
-  if (r) {
-    /* Sync - not in EV context */
-    c = (h->port) ?
-      redisConnect( h->target, h->port )
-      :
-      redisConnectUnix( h->target );
-
-    if (! c) {
-      _P_ERR("connect sync %s NULL", h->target);
-      return 0;
-    }
-    if (c->err) {
-      _P_LOG("connect sync failed %s err:%d", h->target, c->err);
-      redisFree( c );
-      return 0;
-    }
-
-    r->ctx   = c;
-    r->host  = h;
-  }
-
-  else {
-    redisAsyncContext *ac;
-
-    /* ASync - in EV context */
-    ac = (h->port) ?
-      redisAsyncConnect( h->target, h->port )
-      :
-      redisAsyncConnectUnix( h->target );
-
-    _P_LOG("connecting async %s", h->target);
-
-    if (! ac) {
-      _P_ERR( "connect async %s undef", h->target);
-      return 0;
-    }
-    if (ac->err) {
-      _P_LOG( "connect async failed %s err:%d", h->target, ac->err);
-      redisAsyncFree( ac );
-      return 0;
-    }
-
-    if (h->async_ctx)
-      redisAsyncFree( h->async_ctx );
-
-    h->async_ctx = ac;
-
-    /* data for _redis_*_cb */
-    ac->data = h;
-
-    /* Order is important here */
-
-    /* attach */
-    redisLibevAttach( h->e->loop, ac );
-
-    /* set callbacks */
-    redisAsyncSetDisconnectCallback( ac, _redis_disconnect_cb );
-    redisAsyncSetConnectCallback( ac, _redis_connect_cb );
-
-    c = (redisContext*) ac;
-
-    /* set connecting flag */
-    H_SET_CONNECTING( h );
-  }
+  /* Connect per context, reader => sync, writer => async */
+  c = (r) ? _host_connect_sync( h, r ) : _host_connect_async( h );
+  if (! c)
+    return 0;
 
   /* Apply keep-alive */
 #ifdef HOST_TCP_KEEPALIVE
   if (h->port) {
     redisEnableKeepAlive( c );
-    if (r && (h->e->sync_to.tv_sec||h->e->sync_to.tv_usec)) {
+    if (r && (h->e->sync_to.tv_sec || h->e->sync_to.tv_usec)) {
       redisSetTimeout( c, h->e->sync_to );
     }
   }
@@ -750,7 +841,6 @@ _eredis_ev_connect_cb (struct ev_loop *loop, ev_timer *w, int revents)
       case HOST_F_DISCONNECTED:
         if (! _host_connect( h, 0 )) {
           if ((++ h->failures) > HOST_DISCONNECTED_RETRIES) {
-            h->failures = 0;
             H_SET_FAILED( h );
           }
         }
@@ -1040,6 +1130,14 @@ eredis_free( eredis_t *e )
   pthread_mutex_destroy( &e->async_lock );
   pthread_mutex_destroy( &e->reader_lock );
   pthread_cond_destroy( &e->reader_cond );
+
+  /* Clear post-connect commands */
+  if (e->cmds_connect) {
+    for (i=0; i<e->cmds_connect_nb; i++) {
+      free( e->cmds_connect[i].s );
+    }
+    free( e->cmds_connect );
+  }
 
   free(e);
 }

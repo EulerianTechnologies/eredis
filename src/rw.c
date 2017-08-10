@@ -247,18 +247,18 @@ eredis_r( eredis_t *e )
  * Add one cmd in reader
  */
   static inline int
-_eredis_r_add( eredis_reader_t *r, char *cmd, int len )
+_eredis_r_add( eredis_reader_t *r, char *s, int l )
 {
-  rcmd_t *rcmd;
+  cmd_t *cmd;
 
   if (r->cmds_nb>=r->cmds_alloc) {
     r->cmds_alloc += 8;
-    r->cmds = realloc( r->cmds, sizeof(rcmd_t) * r->cmds_alloc );
+    r->cmds = realloc( r->cmds, sizeof(cmd_t) * r->cmds_alloc );
   }
 
-  rcmd = &r->cmds[ r->cmds_nb ++ ];
-  rcmd->s = cmd;
-  rcmd->l = len;
+  cmd = &r->cmds[ r->cmds_nb ++ ];
+  cmd->s = s;
+  cmd->l = l;
 
   return EREDIS_OK;
 }

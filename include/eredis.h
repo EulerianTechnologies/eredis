@@ -83,6 +83,9 @@ extern "C" {
   /* Set retry for reader */
   void eredis_r_retry( eredis_t *e, int retry );
 
+  /* Set connect command */
+  int eredis_pc_cmd( eredis_t *e, const char *fmt, ... );
+
   /* Run async */
   int eredis_run( eredis_t *e );
   int eredis_run_thr( eredis_t *e );
