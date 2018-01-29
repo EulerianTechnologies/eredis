@@ -20,4 +20,4 @@ addons:
     - doxygen
 
 script:
-    - cmake . && make && make doc
+    - mkdir build && cd build && cmake .. && make && make doc
