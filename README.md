@@ -31,8 +31,9 @@ workload by obviously needing exactly the same bandwidth on each node.
 ## Compile
 
 ```shell
-git clone ...
+git clone <eredis_git_url>
 cd eredis
+git submodule update --init
 cmake .
 make
 # optional
