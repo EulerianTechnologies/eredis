@@ -9,7 +9,7 @@ INCLUDE_DIRECTORIES( "${PROJECT_SOURCE_DIR}/include" )
 #
 #    This is for use in environments where there is no access to the Internet
 #    on the build host, or a patched version of hiredis has to be used for some
-#    reason. This is generally not recommended. Use with caution.)
+#    reason. This is generally not recommended. Use with caution.
 #
 # 2. The hiredis submodule maintained in the eredis Git repo
 #
