@@ -448,7 +448,7 @@ eredis_host_add( eredis_t *e, char *target, int port )
  * @return number of host loaded, -1 on error
  */
   int
-eredis_host_file( eredis_t *e, char *file )
+eredis_host_file( eredis_t *e, const char *file )
 {
   struct stat st;
   int fd;

@@ -88,7 +88,7 @@ IF(NOT LIBEV_FOUND)
 ENDIF(NOT LIBEV_FOUND)
 
 IF(NOT DEFINED BUILD_SHARED_LIBS)
-  option(BUILD_SHARED_LIBS "Build eredis as a shared library" ON)
+  OPTION( BUILD_SHARED_LIBS "Build eredis as a shared library" ON )
 ENDIF(NOT DEFINED BUILD_SHARED_LIBS)
 
 ADD_LIBRARY (eredis eredis.c)

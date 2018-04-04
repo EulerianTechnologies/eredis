@@ -74,7 +74,7 @@ extern "C" {
   /* Add a host */
   int eredis_host_add( eredis_t *e, char *target, int port );
   /* Add hosts via configuration file (one host per line) */
-  int eredis_host_file( eredis_t *e, char *file );
+  int eredis_host_file( eredis_t *e, const char *file );
 
   /* Set timeout */
   void eredis_timeout( eredis_t *e, int timeout_ms );
