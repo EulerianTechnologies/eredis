@@ -22,8 +22,14 @@ void sigint_handler(int sig_no)
 }
 
   int
-main( void )
+main( int argc, char *argv[] )
 {
+  /* optional command line arguments */
+  const char *host_file = "test-hosts.conf";
+  if (argc >= 2) {
+    host_file = argv[1];
+  }
+
   int err;
   /* to interrupt */
   struct sigaction action;
@@ -38,8 +44,8 @@ main( void )
   e = eredis_new();
 
   /* conf */
-  if (eredis_host_file( e, "test-hosts.conf" )<=0) {
-    fprintf(stderr, "Unable to load conf\n");
+  if (eredis_host_file( e, host_file )<=0) {
+    fprintf(stderr, "Unable to load conf %s\n", host_file);
     exit(1);
   }
 

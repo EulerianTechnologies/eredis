@@ -18,6 +18,8 @@ addons:
     - git
     - libev-dev
     - doxygen
+    - redis-server
+    - redis-tools
 
 script:
-    - mkdir build && cd build && cmake .. && make && make doc
+  - mkdir build && cd build && cmake .. && make && make doc && make CTEST_OUTPUT_ON_FAILURE=1 test

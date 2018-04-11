@@ -41,7 +41,16 @@ make doc
 make install
 ```
 
-## 
+## Test
+
+If you have Redis installed, and are not cross-compiling, you can run
+the test suite that comes with Eredis after you have built the library
+itself (using the steps in the compile section, above) with the `test`
+target.
+
+```shell
+make test
+```
 
 ## Usage
 

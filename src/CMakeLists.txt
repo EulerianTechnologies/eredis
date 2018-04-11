@@ -9,7 +9,7 @@ INCLUDE_DIRECTORIES( "${PROJECT_SOURCE_DIR}/include" )
 #
 #    This is for use in environments where there is no access to the Internet
 #    on the build host, or a patched version of hiredis has to be used for some
-#    reason. This is generally not recommended. Use with caution.)
+#    reason. This is generally not recommended. Use with caution.
 #
 # 2. The hiredis submodule maintained in the eredis Git repo
 #
@@ -76,9 +76,6 @@ ADD_CUSTOM_COMMAND(
   DEPENDS ${HIREDIS_SOURCE_DIR}/hiredis.c )
 ADD_CUSTOM_TARGET( hiredis-inc SOURCES
   ${PROJECT_BINARY_DIR}/include/eredis-hiredis.h )
-IF(NOT PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
-  INCLUDE_DIRECTORIES( "${PROJECT_BINARY_DIR}/include" )
-ENDIF(NOT PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
 
 FIND_PACKAGE(Threads REQUIRED)
 IF(NOT (CMAKE_USE_PTHREADS_INIT OR CMAKE_HP_PTHREADS_INIT))
@@ -89,34 +86,23 @@ FIND_PACKAGE(Libev REQUIRED)
 IF(NOT LIBEV_FOUND)
   MESSAGE( FATAL_ERROR "Could not find required package libev" )
 ENDIF(NOT LIBEV_FOUND)
-INCLUDE_DIRECTORIES( "${LIBEV_INCLUDE_DIR}" )
 
 IF(NOT DEFINED BUILD_SHARED_LIBS)
-  option(BUILD_SHARED_LIBS "Build eredis as a shared library" ON)
+  OPTION( BUILD_SHARED_LIBS "Build eredis as a shared library" ON )
 ENDIF(NOT DEFINED BUILD_SHARED_LIBS)
 
 ADD_LIBRARY (eredis eredis.c)
 ADD_DEPENDENCIES (eredis hiredis-src hiredis-inc)
+TARGET_INCLUDE_DIRECTORIES( eredis PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
+  $<BUILD_INTERFACE:${LIBEV_INCLUDE_DIR}> )
+MARK_AS_ADVANCED( EREDIS_INCLUDE_DIRECTORIES )
 IF(CMAKE_VERSION VERSION_LESS 3.0)
   TARGET_LINK_LIBRARIES (eredis ${CMAKE_THREAD_LIBS_INIT} ${LIBEV_LIBRARY})
 ELSE(CMAKE_VERSION VERSION_LESS 3.0)
-  TARGET_LINK_LIBRARIES (eredis PRIVATE ${CMAKE_THREAD_LIBS_INIT} ${LIBEV_LIBRARY})
+  TARGET_LINK_LIBRARIES (eredis PUBLIC ${CMAKE_THREAD_LIBS_INIT} ${LIBEV_LIBRARY})
 ENDIF(CMAKE_VERSION VERSION_LESS 3.0)
-
-ADD_EXECUTABLE (test-async test-async.c)
-TARGET_LINK_LIBRARIES (test-async eredis ${CMAKE_THREAD_LIBS_INIT} )
-
-ADD_EXECUTABLE (test-async-thr test-async-thr.c)
-TARGET_LINK_LIBRARIES (test-async-thr eredis ${CMAKE_THREAD_LIBS_INIT})
-
-ADD_EXECUTABLE (test-sync test-sync.c)
-TARGET_LINK_LIBRARIES (test-sync eredis ${CMAKE_THREAD_LIBS_INIT})
-
-ADD_EXECUTABLE (test-sync-thr test-sync-thr.c)
-TARGET_LINK_LIBRARIES (test-sync-thr eredis ${CMAKE_THREAD_LIBS_INIT})
-
-ADD_EXECUTABLE (eredis-drop-noexpire eredis-drop-noexpire.c)
-TARGET_LINK_LIBRARIES (eredis-drop-noexpire eredis)
 
 INSTALL (TARGETS eredis
   LIBRARY DESTINATION lib

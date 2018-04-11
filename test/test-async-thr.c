@@ -22,8 +22,14 @@ void sigint_handler(int sig_no)
 }
 
   int
-main( void )
+main( int argc, char *argv[] )
 {
+  /* optional command line arguments */
+  const char *host_file = "test-hosts.conf";
+  if (argc >= 2) {
+    host_file = argv[1];
+  }
+
   /* to interrupt */
   struct sigaction action;
   memset(&action, 0, sizeof(action));
@@ -37,28 +43,34 @@ main( void )
   e = eredis_new();
 
   /* conf */
-  if (eredis_host_file( e, "test-hosts.conf" )<=0) {
-    fprintf(stderr, "Unable to load conf\n");
+  if (eredis_host_file( e, host_file )<=0) {
+    fprintf(stderr, "Unable to load conf %s\n", host_file);
     exit(1);
   }
 
   /* run thread */
   eredis_run_thr( e );
 
-  int i,j;
+  int i,j,f;
   char fmt[32];
-  for (j='a'; j<='d'; j++) {
+  for (j='a', f=0; j<='d'; j++) {
     printf("Batch letter %c\n", j);
     for (i=0; i<10000;i++) {
       sprintf(fmt, "%c%d", j, i );
       if (eredis_w_cmd( e, "SET %s %i", fmt, i ) != EREDIS_OK)
-        fprintf(stderr, "Failed to eredis_w_cmd\n");
+        ++f;
     }
+  }
+
+  if (f > 0) {
+    fprintf(stderr, "Failed to eredis_w_cmd %dx\n", f);
   }
 
   /* Let some time to process... normal run... yield a bit... push more write... etc.. */
   printf("Sleeping.. async running, CTRL-C when you want to exit\n");
-  sleep(60);
+  while (eredis_w_pending( e ) > 0) {
+    sleep(1);
+  }
 
   eredis_free( e );
 
