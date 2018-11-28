@@ -49,9 +49,12 @@ ELSE()
     ENDIF(NOT GIT_COMMAND)
   ENDIF(NOT GIT_COMMAND)
 
+  # Temporary patch - checkout fixed version of hiredis (current tree is flawed)
+  # https://github.com/redis/hiredis/issues/629
   ADD_CUSTOM_COMMAND(
     OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/hiredis/hiredis.c
     COMMAND ${GIT_COMMAND} clone https://github.com/redis/hiredis.git
+    COMMAND cd hiredis && ${GIT_COMMAND} checkout 747d78beaa66ef1666de7ea0153f2bc2504b8ee5
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Cloning the upstream hiredis repo"
     )
