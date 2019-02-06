@@ -54,7 +54,7 @@ ELSE()
   ADD_CUSTOM_COMMAND(
     OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/hiredis/hiredis.c
     COMMAND ${GIT_COMMAND} clone https://github.com/redis/hiredis.git
-    COMMAND cd hiredis && ${GIT_COMMAND} checkout 747d78beaa66ef1666de7ea0153f2bc2504b8ee5
+    COMMAND cd hiredis && ${GIT_COMMAND} checkout c732240152331f33bfe54e8cff451e515ba2fee5
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Cloning the upstream hiredis repo"
     )
